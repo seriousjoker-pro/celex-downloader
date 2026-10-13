@@ -44,6 +44,20 @@ class CelexDiscoveryTests(unittest.TestCase):
                 ["02009R0810-20240628", "32016R0399", "32017R2226"],
             )
 
+    def test_finds_two_letter_descriptors_and_excludes_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "CELEX_52022DC0303_EN_TXT.pdf").write_bytes(b"pdf")
+            (root / "CELEX_52020IP0378_EN_TXT.pdf").write_bytes(b"pdf")
+            output = root / "downloaded_html"
+            output.mkdir()
+            (output / "CELEX_32006D0896_EN.html").write_text("<html>reference</html>")
+
+            self.assertEqual(
+                discover_celex(root, exclude=output),
+                ["52020IP0378", "52022DC0303"],
+            )
+
     def test_builds_english_html_url(self) -> None:
         self.assertEqual(
             build_html_url("32016R0399"),

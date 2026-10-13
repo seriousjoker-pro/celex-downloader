@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 
 CELEX_PATTERN = re.compile(
-    r"(?<![A-Z0-9])(?:0\d{4}[A-Z]\d{4}-\d{8}|[0-9]\d{4}[A-Z]\d{4}(?:R\(\d{2}\))?)(?![A-Z0-9])"
+    r"(?<![A-Z0-9])(?:0\d{4}[A-Z]{1,2}\d{4}-\d{8}|[0-9]\d{4}[A-Z]{1,2}\d{4}(?:R\(\d{2}\))?)(?![A-Z0-9])"
 )
 TEXT_FILE_LIMIT_BYTES = 20 * 1024 * 1024
 
@@ -45,10 +45,13 @@ def output_filename(celex: str) -> str:
     return f"CELEX_{celex}_EN.html"
 
 
-def discover_celex(source: Path) -> list[str]:
+def discover_celex(source: Path, *, exclude: Path | None = None) -> list[str]:
     """Find CELEX numbers in path names and readable text files beneath *source*."""
     found: set[str] = set()
+    excluded = exclude.resolve() if exclude is not None else None
     for path in source.rglob("*"):
+        if excluded is not None and path.resolve().is_relative_to(excluded):
+            continue
         found.update(CELEX_PATTERN.findall(path.name.upper()))
         if not path.is_file() or path.stat().st_size > TEXT_FILE_LIMIT_BYTES:
             continue
@@ -116,7 +119,7 @@ async def download_all(
 
 
 def run_download(source: Path, output_dir: Path, *, force: bool, headless: bool) -> int:
-    celex_numbers = discover_celex(source)
+    celex_numbers = discover_celex(source, exclude=output_dir)
     if not celex_numbers:
         print(f"No CELEX numbers found under {source}")
         return 2
