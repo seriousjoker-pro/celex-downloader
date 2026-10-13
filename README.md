@@ -1,6 +1,6 @@
 # CELEX Downloader
 
-`celex-downloader` finds CELEX identifiers in a local folder and saves the official English HTML edition of each EUR-Lex document. It deliberately preserves EUR-Lex HTML as received: it does not convert, summarize, or alter legal text.
+`celex-downloader` finds CELEX identifiers in a local folder and saves the official English HTML, PDF, and XML notice published by EUR-Lex. It preserves each retrieved source as received: it does not convert, summarize, or alter legal text.
 
 ## Specification
 
@@ -16,8 +16,8 @@ Provide a repeatable local command for collecting the English HTML source docume
 
 ### Outputs
 
-- One unmodified UTF-8 HTML file per successfully retrieved identifier: `CELEX_<identifier>_EN.html`.
-- `manifest.json`, recording every downloaded, skipped, and failed identifier.
+- Up to three source files per successfully retrieved identifier: `CELEX_<identifier>_EN.html`, `.pdf`, and `.xml`.
+- `manifest.json`, recording every downloaded, skipped, and failed identifier by format.
 - Existing HTML files are skipped by default, so interrupted runs can safely resume. Use `--force` to replace them.
 
 ### Retrieval method and constraints
@@ -48,7 +48,7 @@ py -3 -m playwright install chrome
 ## Use
 
 ```powershell
-celex-download "C:\Users\mapaleari\Downloads\da benny" --output .\downloaded_html
+celex-download "C:\Users\mapaleari\Downloads\CELEX" --output .\downloaded_sources
 ```
 
 Or, without installing the command entry point:
@@ -58,7 +58,7 @@ $env:PYTHONPATH = "src"
 py -3 -m celex_downloader.cli "C:\Users\mapaleari\Downloads\da benny" --output .\downloaded_html
 ```
 
-Keep the Chrome window open while a run is active. `--headless` is available for controlled environments, but it is not recommended because EUR-Lex may challenge headless browsers.
+Use `--formats html,pdf,xml` to select formats; this is also the default. Keep the Chrome window open while a run is active. `--headless` is available for controlled environments, but it is not recommended because EUR-Lex may challenge headless browsers.
 
 ## Test
 

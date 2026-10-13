@@ -5,10 +5,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from celex_downloader.downloader import (
     DownloadError,
-    build_html_url,
+    build_document_url,
     discover_celex,
     download_one,
     output_filename,
@@ -19,12 +20,28 @@ class FakePage:
     def __init__(self, html: str) -> None:
         self.html = html
         self.urls: list[str] = []
+        self.goto_options: list[dict[str, object]] = []
 
-    async def goto(self, url: str, **_: object) -> None:
+    async def goto(self, url: str, **kwargs: object) -> "FakeResponse":
         self.urls.append(url)
+        self.goto_options.append(kwargs)
+        return FakeResponse()
 
     async def content(self) -> str:
         return self.html
+
+
+class FakeResponse:
+    async def body(self) -> bytes:
+        return b"%PDF-1.7 fake pdf"
+
+    async def text(self) -> str:
+        return "<?xml version='1.0'?><NOTICE/>"
+
+
+class FakePdfStream:
+    def read(self) -> bytes:
+        return b"%PDF-1.7 fake pdf"
 
 
 class CelexDiscoveryTests(unittest.TestCase):
@@ -58,16 +75,24 @@ class CelexDiscoveryTests(unittest.TestCase):
                 ["52020IP0378", "52022DC0303"],
             )
 
-    def test_builds_english_html_url(self) -> None:
+    def test_builds_english_document_urls(self) -> None:
         self.assertEqual(
-            build_html_url("32016R0399"),
+            build_document_url("32016R0399", "html"),
             "https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX%3A32016R0399",
+        )
+        self.assertEqual(
+            build_document_url("32016R0399", "pdf"),
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX%3A32016R0399",
+        )
+        self.assertEqual(
+            build_document_url("32016R0399", "xml"),
+            "https://eur-lex.europa.eu/legal-content/EN/TXT/XML/?uri=CELEX%3A32016R0399",
         )
 
     def test_output_name_is_safe_for_consolidated_celex(self) -> None:
         self.assertEqual(
-            output_filename("02009R0810-20240628"),
-            "CELEX_02009R0810-20240628_EN.html",
+            output_filename("02009R0810-20240628", "pdf"),
+            "CELEX_02009R0810-20240628_EN.pdf",
         )
 
 
@@ -75,17 +100,28 @@ class DownloadTests(unittest.TestCase):
     def test_download_one_saves_browser_html(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             page = FakePage("<html><body>REGULATION (EU) 2016/399</body></html>")
-            result = asyncio.run(download_one(page, "32016R0399", Path(directory)))
+            result = asyncio.run(download_one(page, "32016R0399", "html", Path(directory)))
 
             saved = Path(directory) / "CELEX_32016R0399_EN.html"
             self.assertEqual(result.path, saved)
             self.assertTrue(saved.exists())
             self.assertIn("2016/399", saved.read_text(encoding="utf-8"))
-            self.assertEqual(page.urls, [build_html_url("32016R0399")])
+            self.assertEqual(page.urls, [build_document_url("32016R0399", "html")])
+
+    def test_download_one_saves_pdf_response_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            page = FakePage("unused")
+            with patch("celex_downloader.downloader.urlopen", return_value=FakePdfStream()):
+                result = asyncio.run(download_one(page, "32016R0399", "pdf", Path(directory)))
+
+            saved = Path(directory) / "CELEX_32016R0399_EN.pdf"
+            self.assertEqual(result.path, saved)
+            self.assertEqual(saved.read_bytes(), b"%PDF-1.7 fake pdf")
+            self.assertEqual(page.goto_options, [])
 
     def test_download_one_rejects_non_html_response(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             page = FakePage("Access denied")
 
             with self.assertRaises(DownloadError):
-                asyncio.run(download_one(page, "32016R0399", Path(directory)))
+                asyncio.run(download_one(page, "32016R0399", "html", Path(directory)))
