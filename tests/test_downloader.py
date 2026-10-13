@@ -13,35 +13,23 @@ from celex_downloader.downloader import (
     discover_celex,
     download_one,
     output_filename,
+    read_celex_file,
 )
-
-
-class FakePage:
-    def __init__(self, html: str) -> None:
-        self.html = html
-        self.urls: list[str] = []
-        self.goto_options: list[dict[str, object]] = []
-
-    async def goto(self, url: str, **kwargs: object) -> "FakeResponse":
-        self.urls.append(url)
-        self.goto_options.append(kwargs)
-        return FakeResponse()
-
-    async def content(self) -> str:
-        return self.html
-
-
-class FakeResponse:
-    async def body(self) -> bytes:
-        return b"%PDF-1.7 fake pdf"
-
-    async def text(self) -> str:
-        return "<?xml version='1.0'?><NOTICE/>"
 
 
 class FakePdfStream:
     def read(self) -> bytes:
         return b"%PDF-1.7 fake pdf"
+
+
+class FakeHtmlStream:
+    def read(self) -> bytes:
+        return b"<html><body>REGULATION (EU) 2016/399</body></html>"
+
+
+class FakeXmlStream:
+    def read(self) -> bytes:
+        return b"<?xml version='1.0'?><NOTICE/>"
 
 
 class CelexDiscoveryTests(unittest.TestCase):
@@ -89,6 +77,12 @@ class CelexDiscoveryTests(unittest.TestCase):
             "https://eur-lex.europa.eu/legal-content/EN/TXT/XML/?uri=CELEX%3A32016R0399",
         )
 
+    def test_reads_explicit_catalogue_without_expanding_references(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            catalogue = Path(directory) / "celex.txt"
+            catalogue.write_text("32016R0399\n32016R0399\nReference: 52022DC0303", encoding="utf-8")
+            self.assertEqual(read_celex_file(catalogue), ["32016R0399", "52022DC0303"])
+
     def test_output_name_is_safe_for_consolidated_celex(self) -> None:
         self.assertEqual(
             output_filename("02009R0810-20240628", "pdf"),
@@ -97,31 +91,36 @@ class CelexDiscoveryTests(unittest.TestCase):
 
 
 class DownloadTests(unittest.TestCase):
-    def test_download_one_saves_browser_html(self) -> None:
+    def test_download_one_saves_cellar_html(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            page = FakePage("<html><body>REGULATION (EU) 2016/399</body></html>")
-            result = asyncio.run(download_one(page, "32016R0399", "html", Path(directory)))
+            with patch("celex_downloader.downloader.urlopen", return_value=FakeHtmlStream()):
+                result = asyncio.run(download_one("32016R0399", "html", Path(directory)))
 
             saved = Path(directory) / "CELEX_32016R0399_EN.html"
             self.assertEqual(result.path, saved)
             self.assertTrue(saved.exists())
             self.assertIn("2016/399", saved.read_text(encoding="utf-8"))
-            self.assertEqual(page.urls, [build_document_url("32016R0399", "html")])
 
     def test_download_one_saves_pdf_response_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            page = FakePage("unused")
             with patch("celex_downloader.downloader.urlopen", return_value=FakePdfStream()):
-                result = asyncio.run(download_one(page, "32016R0399", "pdf", Path(directory)))
+                result = asyncio.run(download_one("32016R0399", "pdf", Path(directory)))
 
             saved = Path(directory) / "CELEX_32016R0399_EN.pdf"
             self.assertEqual(result.path, saved)
             self.assertEqual(saved.read_bytes(), b"%PDF-1.7 fake pdf")
-            self.assertEqual(page.goto_options, [])
 
     def test_download_one_rejects_non_html_response(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            page = FakePage("Access denied")
+            with patch("celex_downloader.downloader.urlopen", return_value=FakePdfStream()):
+                with self.assertRaises(DownloadError):
+                    asyncio.run(download_one("32016R0399", "html", Path(directory)))
 
-            with self.assertRaises(DownloadError):
-                asyncio.run(download_one(page, "32016R0399", "html", Path(directory)))
+    def test_download_one_saves_cellar_xml(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch("celex_downloader.downloader.urlopen", return_value=FakeXmlStream()):
+                result = asyncio.run(download_one("32016R0399", "xml", Path(directory)))
+
+            saved = Path(directory) / "CELEX_32016R0399_EN.xml"
+            self.assertEqual(result.path, saved)
+            self.assertEqual(saved.read_bytes(), b"<?xml version='1.0'?><NOTICE/>")

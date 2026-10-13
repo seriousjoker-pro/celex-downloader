@@ -5,9 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "celex-downloader"
 version = "0.1.0"
-description = "Browser-based downloader for English EUR-Lex HTML documents"
+description = "Official English CELEX HTML/XHTML, PDF and XML downloader"
 requires-python = ">=3.11"
-dependencies = ["playwright>=1.50,<2"]
 
 [project.scripts]
 celex-download = "celex_downloader.cli:main"
